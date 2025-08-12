@@ -51,3 +51,17 @@ class RewardSerializer(serializers.ModelSerializer):
         if request and hasattr(request, 'user') and request.user.role == 'parent':
             validated_data['parent'] = request.user.parent_profile
         return super().create(validated_data)
+
+
+
+from .models import ScoreTransaction, Reward
+
+class ScoreTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScoreTransaction
+        fields = ['id', 'child', 'points', 'description', 'created_at']
+
+class RewardSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Reward
+        fields = ['id', 'name', 'cost', 'description']
