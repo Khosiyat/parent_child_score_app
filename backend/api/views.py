@@ -134,3 +134,54 @@ class RegisterView(APIView):
             Child.objects.create(user=user)
 
         return Response({'detail': 'User registered successfully'}, status=status.HTTP_201_CREATED)
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import generics
+from .models import Child, ScoreTransaction, Reward
+from .serializers import ScoreTransactionSerializer, RewardSerializer
+from rest_framework.response import Response
+from rest_framework import status
+
+class ScoreTransactionCreateView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ScoreTransactionSerializer
+
+    def perform_create(self, serializer):
+        # Only parents can add/subtract scores
+        if self.request.user.role != 'parent':
+            return Response({'detail': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        serializer.save()
+
+class RewardListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = RewardSerializer
+
+    def get_queryset(self):
+        # Return rewards for this child or all if parent
+        if self.request.user.role == 'parent':
+            return Reward.objects.all()
+        else:
+            child = Child.objects.get(user=self.request.user)
+            return Reward.objects.filter(children=child)
+
+class RedeemRewardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        reward_id = request.data.get('reward_id')
+        try:
+            reward = Reward.objects.get(id=reward_id)
+            if user.role == 'child':
+                child = Child.objects.get(user=user)
+                if child.score_balance < reward.cost:
+                    return Response({'detail': 'Insufficient score'}, status=status.HTTP_400_BAD_REQUEST)
+                child.score_balance -= reward.cost
+                child.save()
+                # Log transaction as negative score for redemption
+                ScoreTransaction.objects.create(child=child, points=-reward.cost, description=f'Redeemed reward: {reward.name}')
+                return Response({'detail': 'Reward redeemed successfully'}, status=status.HTTP_200_OK)
+            else:
+                return Response({'detail': 'Only children can redeem rewards'}, status=status.HTTP_403_FORBIDDEN)
+        except Reward.DoesNotExist:
+            return Response({'detail': 'Reward not found'}, status=status.HTTP_404_NOT_FOUND)
