@@ -46,6 +46,9 @@
 
 // export default ChildDashboard;
 
+
+
+
 import React, { useEffect, useState } from 'react';
 import axiosInstance from '../api/axiosInstance';
 
@@ -122,4 +125,21 @@ const ChildDashboard: React.FC = () => {
       <h3>Redeem Reward</h3>
       <form onSubmit={handleRedeemReward}>
         <select
-          value={selectedRewardId ??
+          value={selectedRewardId ?? ''}
+          onChange={e => setSelectedRewardId(Number(e.target.value))}
+          required
+        >
+          <option value="" disabled>Select a reward</option>
+          {rewards.map(r => (
+            <option key={r.id} value={r.id}>
+              {r.name} - {r.cost} points
+            </option>
+          ))}
+        </select>
+        <button type="submit">Redeem</button>
+      </form>
+    </div>
+  );
+};
+
+export default ChildDashboard;
