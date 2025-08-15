@@ -1,5 +1,5 @@
-import React, { createContext, useState, ReactNode, useEffect } from 'react';
-import jwtDecode from 'jwt-decode';
+import React, { createContext, useState, useEffect, ReactNode } from 'react';
+import axiosInstance from '../api/axiosInstance';
 
 interface User {
   username: string;
@@ -8,7 +8,7 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  login: (access: string, refresh: string) => void;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -18,23 +18,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    const access = localStorage.getItem('access_token');
-    if (access) {
-      const decoded: any = jwtDecode(access);
-      setUser({ username: decoded.username, role: decoded.role });
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      setUser(JSON.parse(savedUser));
     }
   }, []);
 
-  const login = (access: string, refresh: string) => {
-    localStorage.setItem('access_token', access);
-    localStorage.setItem('refresh_token', refresh);
-    const decoded: any = jwtDecode(access);
-    setUser({ username: decoded.username, role: decoded.role });
+  const login = async (username: string, password: string) => {
+    try {
+      const response = await axiosInstance.post('api/token/', { username, password });
+      const { access, refresh } = response.data;
+      localStorage.setItem('access_token', access);
+      localStorage.setItem('refresh_token', refresh);
+
+      // Fetch user details (assuming API for current user info)
+      const userRes = await axiosInstance.get('api/user/');
+      setUser(userRes.data);
+      localStorage.setItem('user', JSON.stringify(userRes.data));
+    } catch (error) {
+      throw new Error('Invalid credentials');
+    }
   };
 
   const logout = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
     setUser(null);
   };
 
