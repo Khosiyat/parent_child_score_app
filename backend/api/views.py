@@ -185,3 +185,16 @@ class RedeemRewardView(APIView):
                 return Response({'detail': 'Only children can redeem rewards'}, status=status.HTTP_403_FORBIDDEN)
         except Reward.DoesNotExist:
             return Response({'detail': 'Reward not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+
+
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+
+class CurrentUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({'username': user.username, 'role': user.role})

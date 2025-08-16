@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import ParentViewSet, ChildViewSet, ScoreTransactionViewSet, RewardViewSet, RegisterView, ScoreTransactionCreateView, RewardListView, RedeemRewardView
+from .views import ParentViewSet, ChildViewSet, ScoreTransactionViewSet, RewardViewSet, RegisterView, ScoreTransactionCreateView, RewardListView, RedeemRewardView,CurrentUserView
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -21,4 +21,5 @@ urlpatterns = [
     path('api/score-transactions/', ScoreTransactionCreateView.as_view(), name='score-transaction-create'),
     path('api/rewards/', RewardListView.as_view(), name='reward-list'),
     path('api/rewards/redeem/', RedeemRewardView.as_view(), name='reward-redeem'),
+    path('api/user/', CurrentUserView.as_view(), name='current-user'),
 ]
