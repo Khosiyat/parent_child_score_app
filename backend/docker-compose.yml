@@ -1,31 +1,32 @@
-version: '3.8'
+version: '3'
 
 services:
-  web:
-    build: .
-    command: gunicorn backend.wsgi:application --bind 0.0.0.0:8000
+  backend:
+    build: ./backend
     volumes:
-      - .:/app
+      - ./backend:/app
     ports:
       - "8000:8000"
+    env_file:
+      - ./backend/.env
     depends_on:
-      - redis
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DJANGO_SETTINGS_MODULE=backend.settings
+      - db
 
-  redis:
-    image: redis:7
+  frontend:
+    build: ./frontend
     ports:
-      - "6379:6379"
+      - "3000:80"
 
-  celery_worker:
-    build: .
-    command: celery -A backend worker -l info
-    volumes:
-      - .:/app
-    depends_on:
-      - redis
+  db:
+    image: postgres:15-alpine
     environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DJANGO_SETTINGS_MODULE=backend.settings
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: example
+      POSTGRES_DB: appdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
