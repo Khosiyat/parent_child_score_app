@@ -63,3 +63,32 @@ class Reward(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.cost} pts)"
+
+
+# RewardRequest model so children can request rewards
+
+class RewardRequest(models.Model):
+    child = models.ForeignKey(Child, on_delete=models.CASCADE)
+    reward = models.ForeignKey(Reward, on_delete=models.CASCADE)
+    requested_at = models.DateTimeField(auto_now_add=True)
+    approved = models.BooleanField(default=False)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='approved_requests')
+
+    def approve(self, approver):
+        self.approved = True
+        self.approved_at = timezone.now()
+        self.approved_by = approver
+        self.save()
+        # Deduct score on approval
+        child = self.child
+        if child.score_balance >= self.reward.cost:
+            child.score_balance -= self.reward.cost
+            child.save()
+            ScoreTransaction.objects.create(
+                child=child,
+                points=-self.reward.cost,
+                description=f'Reward redeemed: {self.reward.name} (approved)'
+            )
+        else:
+            raise ValueError("Insufficient score")

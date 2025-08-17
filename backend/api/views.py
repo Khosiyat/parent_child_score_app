@@ -198,3 +198,47 @@ class CurrentUserView(APIView):
     def get(self, request):
         user = request.user
         return Response({'username': user.username, 'role': user.role})
+
+
+
+from rest_framework import generics, status
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
+
+class ScoreTransactionCreateView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ScoreTransactionSerializer
+
+    def perform_create(self, serializer):
+        if self.request.user.role != 'parent':
+            return Response({'detail': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
+        serializer.save()
+
+class RewardRequestListView(generics.ListAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = RewardRequestSerializer
+
+    def get_queryset(self):
+        # Parents see all requests; children see only their own
+        user = self.request.user
+        if user.role == 'parent':
+            return RewardRequest.objects.filter(approved=False)
+        else:
+            child = Child.objects.get(user=user)
+            return RewardRequest.objects.filter(child=child)
+
+class RewardRequestApproveView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if request.user.role != 'parent':
+            return Response({'detail': 'Only parents can approve'}, status=status.HTTP_403_FORBIDDEN)
+        try:
+            req = RewardRequest.objects.get(pk=pk, approved=False)
+            req.approve(approver=request.user)
+            return Response({'detail': 'Reward request approved'})
+        except RewardRequest.DoesNotExist:
+            return Response({'detail': 'Request not found or already approved'}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)

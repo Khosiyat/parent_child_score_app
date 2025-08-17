@@ -65,3 +65,18 @@ class RewardSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reward
         fields = ['id', 'name', 'cost', 'description']
+
+
+
+class ScoreTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ScoreTransaction
+        fields = ['id', 'child', 'points', 'description', 'created_at']
+
+class RewardRequestSerializer(serializers.ModelSerializer):
+    reward_name = serializers.CharField(source='reward.name', read_only=True)
+    child_name = serializers.CharField(source='child.user.username', read_only=True)
+
+    class Meta:
+        model = RewardRequest
+        fields = ['id', 'child', 'child_name', 'reward', 'reward_name', 'requested_at', 'approved', 'approved_at']
