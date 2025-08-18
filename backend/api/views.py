@@ -242,3 +242,14 @@ class RewardRequestApproveView(APIView):
             return Response({'detail': 'Request not found or already approved'}, status=status.HTTP_404_NOT_FOUND)
         except ValueError as e:
             return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class RewardRequestCreateView(generics.CreateAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = RewardRequestSerializer
+
+    def perform_create(self, serializer):
+        if self.request.user.role != 'child':
+            raise PermissionDenied('Only children can request rewards')
+        child = Child.objects.get(user=self.request.user)
+        serializer.save(child=child)

@@ -22,7 +22,8 @@ urlpatterns = [
     path('api/rewards/', RewardListView.as_view(), name='reward-list'),
     path('api/rewards/redeem/', RedeemRewardView.as_view(), name='reward-redeem'),
     path('api/user/', CurrentUserView.as_view(), name='current-user'),
-       path('api/score-transactions/', ScoreTransactionCreateView.as_view(), name='score-transaction-create'),
+    path('api/score-transactions/', ScoreTransactionCreateView.as_view(), name='score-transaction-create'),
     path('api/reward-requests/', RewardRequestListView.as_view(), name='reward-request-list'),
     path('api/reward-requests/<int:pk>/approve/', RewardRequestApproveView.as_view(), name='reward-request-approve'),
+    path('api/reward-requests/create/', RewardRequestCreateView.as_view(), name='reward-request-create'),
 ]

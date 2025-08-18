@@ -1,42 +1,3 @@
-// import React, { useEffect, useState } from 'react';
-// import axiosInstance from '../api/axiosInstance';
-
-// interface Child {
-//   id: number;
-//   user: {
-//     username: string;
-//   };
-//   score_balance: number;
-// }
-
-// const ParentDashboard: React.FC = () => {
-//   const [children, setChildren] = useState<Child[]>([]);
-
-//   useEffect(() => {
-//     axiosInstance.get('children/')
-//       .then(res => setChildren(res.data))
-//       .catch(() => alert('Failed to fetch children'));
-//   }, []);
-
-//   return (
-//     <div>
-//       <h2>Parent Dashboard</h2>
-//       <h3>Your Children</h3>
-//       <ul>
-//         {children.map(child => (
-//           <li key={child.id}>
-//             {child.user.username} - Score: {child.score_balance}
-//           </li>
-//         ))}
-//       </ul>
-//       {/* You can add forms here for adding/subtracting points, redeeming rewards */}
-//     </div>
-//   );
-// };
-
-// export default ParentDashboard;
-
-
 import React, { useEffect, useState } from 'react';
 import axiosInstance from '../api/axiosInstance';
 
@@ -53,30 +14,48 @@ interface Reward {
   description: string;
 }
 
+interface RewardRequest {
+  id: number;
+  child_name: string;
+  reward_name: string;
+  requested_at: string;
+}
+
 const ParentDashboard: React.FC = () => {
   const [children, setChildren] = useState<Child[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<number | null>(null);
   const [points, setPoints] = useState<number>(0);
   const [description, setDescription] = useState('');
   const [rewards, setRewards] = useState<Reward[]>([]);
-  const [redeemPoints, setRedeemPoints] = useState<number>(0);
-  const [redeemDescription, setRedeemDescription] = useState('');
-  const [selectedRewardId, setSelectedRewardId] = useState<number | null>(null);
+  const [rewardRequests, setRewardRequests] = useState<RewardRequest[]>([]);
 
   useEffect(() => {
+    fetchChildren();
+    fetchRewards();
+    fetchRewardRequests();
+  }, []);
+
+  const fetchChildren = () => {
     axiosInstance.get('children/')
       .then(res => setChildren(res.data))
       .catch(() => alert('Failed to fetch children'));
+  };
 
+  const fetchRewards = () => {
     axiosInstance.get('rewards/')
       .then(res => setRewards(res.data))
       .catch(() => alert('Failed to fetch rewards'));
-  }, []);
+  };
+
+  const fetchRewardRequests = () => {
+    axiosInstance.get('reward-requests/')
+      .then(res => setRewardRequests(res.data))
+      .catch(() => alert('Failed to fetch reward requests'));
+  };
 
   const handleAddSubtractPoints = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedChildId) return alert('Select a child');
-    if (!description) return alert('Enter a description');
+    if (!selectedChildId || !description) return alert('Please select child and add description');
 
     try {
       await axiosInstance.post('score-transactions/', {
@@ -85,23 +64,21 @@ const ParentDashboard: React.FC = () => {
         description,
       });
       alert('Score updated');
-      // Refresh children scores
-      const res = await axiosInstance.get('children/');
-      setChildren(res.data);
+      fetchChildren();
     } catch {
       alert('Failed to update score');
     }
   };
 
-  const handleRedeemReward = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedChildId) return alert('Select a child');
-    if (!selectedRewardId) return alert('Select a reward');
-
-    // Note: Parents can redeem rewards on behalf of child if you want,
-    // or skip this form in parent and leave it for child only.
-
-    alert('Reward redemption via parent not implemented yet.');
+  const approveRequest = async (id: number) => {
+    try {
+      await axiosInstance.post(`reward-requests/${id}/approve/`);
+      alert('Request approved');
+      fetchChildren();
+      fetchRewardRequests();
+    } catch (e: any) {
+      alert(e.response?.data.detail || 'Failed to approve request');
+    }
   };
 
   return (
@@ -142,13 +119,22 @@ const ParentDashboard: React.FC = () => {
         <button type="submit">Submit</button>
       </form>
 
+      <h3>Pending Reward Requests</h3>
+      <ul>
+        {rewardRequests.map(req => (
+          <li key={req.id}>
+            {req.child_name} requested {req.reward_name} at {new Date(req.requested_at).toLocaleString()}
+            <button onClick={() => approveRequest(req.id)}>Approve</button>
+          </li>
+        ))}
+      </ul>
+
       <h3>Reward Catalog</h3>
       <ul>
         {rewards.map(r => (
           <li key={r.id}>{r.name} - Cost: {r.cost} points - {r.description}</li>
         ))}
       </ul>
-
     </div>
   );
 };
