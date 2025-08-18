@@ -1,10 +1,12 @@
 from rest_framework import serializers
-from .models import User, Parent, Child, ScoreTransaction, Reward
+from .models import User, Parent, Child, ScoreTransaction, Reward, RewardRequest
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'role']
+
 
 class ParentSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -12,6 +14,7 @@ class ParentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Parent
         fields = ['id', 'user']
+
 
 class ChildSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
@@ -21,6 +24,7 @@ class ChildSerializer(serializers.ModelSerializer):
     class Meta:
         model = Child
         fields = ['id', 'user', 'parents', 'score_balance']
+
 
 class ScoreTransactionSerializer(serializers.ModelSerializer):
     parent = ParentSerializer(read_only=True)
@@ -33,11 +37,10 @@ class ScoreTransactionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         request = self.context.get('request')
-        # Attach parent from logged-in user if role=parent
         if request and hasattr(request, 'user') and request.user.role == 'parent':
-            parent = request.user.parent_profile
-            validated_data['parent'] = parent
+            validated_data['parent'] = request.user.parent_profile
         return super().create(validated_data)
+
 
 class RewardSerializer(serializers.ModelSerializer):
     parent = ParentSerializer(read_only=True)
@@ -53,30 +56,20 @@ class RewardSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-
-from .models import ScoreTransaction, Reward
-
-class ScoreTransactionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ScoreTransaction
-        fields = ['id', 'child', 'points', 'description', 'created_at']
-
-class RewardSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Reward
-        fields = ['id', 'name', 'cost', 'description']
-
-
-
-class ScoreTransactionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ScoreTransaction
-        fields = ['id', 'child', 'points', 'description', 'created_at']
-
 class RewardRequestSerializer(serializers.ModelSerializer):
     reward_name = serializers.CharField(source='reward.name', read_only=True)
     child_name = serializers.CharField(source='child.user.username', read_only=True)
 
     class Meta:
         model = RewardRequest
-        fields = ['id', 'child', 'child_name', 'reward', 'reward_name', 'requested_at', 'approved', 'approved_at']
+        fields = [
+            'id',
+            'child',
+            'child_name',
+            'reward',
+            'reward_name',
+            'requested_at',
+            'approved',
+            'approved_at',
+        ]
+        read_only_fields = ['requested_at', 'approved', 'approved_at']
