@@ -64,6 +64,8 @@ const ParentDashboard: React.FC = () => {
         description,
       });
       alert('Score updated');
+      setPoints(0);
+      setDescription('');
       fetchChildren();
     } catch {
       alert('Failed to update score');

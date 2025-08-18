@@ -54,8 +54,9 @@ const ChildDashboard: React.FC = () => {
     if (!selectedRewardId) return alert('Select a reward to request');
 
     try {
-      await axiosInstance.post('reward-requests/create/', { reward: selectedRewardId });
+      await axiosInstance.post('reward-requests/create/', { reward_id: selectedRewardId });
       alert('Reward requested! Waiting for parent approval.');
+      setSelectedRewardId(null);
     } catch (e: any) {
       alert(e.response?.data.detail || 'Failed to request reward');
     }
@@ -70,5 +71,60 @@ const ChildDashboard: React.FC = () => {
       alert('Reward redeemed!');
       fetchScore();
       fetchTransactions();
+      setSelectedRewardId(null);
     } catch (e: any) {
-      alert(e.response?.data
+      alert(e.response?.data.detail || 'Failed to redeem reward');
+    }
+  };
+
+  return (
+    <div>
+      <h2>Child Dashboard</h2>
+      <p>Score Balance: {scoreBalance}</p>
+
+      <h3>Transactions</h3>
+      <ul>
+        {transactions.map(tx => (
+          <li key={tx.id}>
+            {tx.description}: {tx.points > 0 ? '+' : ''}{tx.points} points ({new Date(tx.created_at).toLocaleString()})
+          </li>
+        ))}
+      </ul>
+
+      <h3>Rewards</h3>
+      <form onSubmit={handleRequestReward}>
+        <select
+          value={selectedRewardId ?? ''}
+          onChange={e => setSelectedRewardId(Number(e.target.value))}
+          required
+        >
+          <option value="" disabled>Select a reward</option>
+          {rewards.map(r => (
+            <option key={r.id} value={r.id}>
+              {r.name} - {r.cost} points
+            </option>
+          ))}
+        </select>
+        <button type="submit">Request Reward</button>
+      </form>
+
+      <form onSubmit={handleRedeemReward} style={{ marginTop: '1rem' }}>
+        <select
+          value={selectedRewardId ?? ''}
+          onChange={e => setSelectedRewardId(Number(e.target.value))}
+          required
+        >
+          <option value="" disabled>Select a reward</option>
+          {rewards.map(r => (
+            <option key={r.id} value={r.id}>
+              {r.name} - {r.cost} points
+            </option>
+          ))}
+        </select>
+        <button type="submit">Redeem Now</button>
+      </form>
+    </div>
+  );
+};
+
+export default ChildDashboard;
