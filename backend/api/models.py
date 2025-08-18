@@ -1,20 +1,26 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from django.utils import timezone  # <-- missing import fixed
+
 
 class User(AbstractUser):
-    # We'll extend AbstractUser to add roles (parent or child)
     ROLE_CHOICES = (
         ('parent', 'Parent'),
         ('child', 'Child'),
     )
     role = models.CharField(max_length=10, choices=ROLE_CHOICES)
 
+    def __str__(self):
+        return f"{self.username} ({self.role})"
+
+
 class Parent(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='parent_profile')
 
     def __str__(self):
         return f"Parent: {self.user.username}"
+
 
 class Child(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='child_profile')
@@ -25,10 +31,10 @@ class Child(models.Model):
 
     @property
     def score_balance(self):
-        # Sum of all transactions (additions - subtractions)
         from django.db.models import Sum
         total = self.score_transactions.aggregate(sum=models.Sum('points'))['sum']
         return total or 0
+
 
 class ScoreTransaction(models.Model):
     TRANSACTION_TYPE_CHOICES = (
@@ -45,7 +51,7 @@ class ScoreTransaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        # Ensure points are positive or negative depending on transaction_type
+        # Normalize points based on type
         if self.transaction_type == 'add' and self.points < 0:
             self.points = abs(self.points)
         elif self.transaction_type in ['subtract', 'redeem'] and self.points > 0:
@@ -54,6 +60,7 @@ class ScoreTransaction(models.Model):
 
     def __str__(self):
         return f"{self.transaction_type} {self.points} for {self.child.user.username}"
+
 
 class Reward(models.Model):
     parent = models.ForeignKey(Parent, on_delete=models.CASCADE, related_name='rewards')
@@ -65,10 +72,8 @@ class Reward(models.Model):
         return f"{self.name} ({self.cost} pts)"
 
 
-# RewardRequest model so children can request rewards
-
 class RewardRequest(models.Model):
-    child = models.ForeignKey(Child, on_delete=models.CASCADE)
+    child = models.ForeignKey(Child, on_delete=models.CASCADE, related_name="reward_requests")
     reward = models.ForeignKey(Reward, on_delete=models.CASCADE)
     requested_at = models.DateTimeField(auto_now_add=True)
     approved = models.BooleanField(default=False)
@@ -76,19 +81,25 @@ class RewardRequest(models.Model):
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='approved_requests')
 
     def approve(self, approver):
+        if self.approved:
+            raise ValueError("This request has already been approved.")
+
+        if self.child.score_balance < self.reward.cost:
+            raise ValueError("Insufficient score")
+
+        # Deduct score with a transaction
+        ScoreTransaction.objects.create(
+            child=self.child,
+            parent=None,  # approval doesn’t require a parent directly
+            points=-self.reward.cost,
+            transaction_type='redeem',
+            description=f'Reward redeemed: {self.reward.name} (approved)'
+        )
+
         self.approved = True
         self.approved_at = timezone.now()
         self.approved_by = approver
         self.save()
-        # Deduct score on approval
-        child = self.child
-        if child.score_balance >= self.reward.cost:
-            child.score_balance -= self.reward.cost
-            child.save()
-            ScoreTransaction.objects.create(
-                child=child,
-                points=-self.reward.cost,
-                description=f'Reward redeemed: {self.reward.name} (approved)'
-            )
-        else:
-            raise ValueError("Insufficient score")
+
+    def __str__(self):
+        return f"Request({self.child.user.username} -> {self.reward.name}, approved={self.approved})"
