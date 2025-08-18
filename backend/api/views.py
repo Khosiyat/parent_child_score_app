@@ -1,116 +1,32 @@
+# backend/api/views.py
+
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.contrib.auth import get_user_model
-from .models import Parent, Child, ScoreTransaction, Reward
+from rest_framework.views import APIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.exceptions import PermissionDenied
+
+from .models import Parent, Child, ScoreTransaction, Reward, RewardRequest
 from .serializers import (
-    ParentSerializer, ChildSerializer, ScoreTransactionSerializer, RewardSerializer,
-    UserSerializer
+    ParentSerializer,
+    ChildSerializer,
+    ScoreTransactionSerializer,
+    RewardSerializer,
+    RewardRequestSerializer,
+    UserSerializer,
 )
 from .permissions import IsParent, IsChild, IsOwnerOrParent
 
 User = get_user_model()
 
-class ParentViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Parent.objects.all()
-    serializer_class = ParentSerializer
-    permission_classes = [permissions.IsAuthenticated, IsParent]
 
-class ChildViewSet(viewsets.ModelViewSet):
-    queryset = Child.objects.all()
-    serializer_class = ChildSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrParent]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == 'parent':
-            parent = user.parent_profile
-            return parent.children.all()
-        elif user.role == 'child':
-            return Child.objects.filter(user=user)
-        return Child.objects.none()
-
-    def perform_create(self, serializer):
-        # Only allow parents to create children
-        if self.request.user.role == 'parent':
-            child = serializer.save()
-            child.parents.add(self.request.user.parent_profile)
-
-class ScoreTransactionViewSet(viewsets.ModelViewSet):
-    queryset = ScoreTransaction.objects.all().order_by('-created_at')
-    serializer_class = ScoreTransactionSerializer
-
-    def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [permissions.IsAuthenticated, IsParent]
-        else:
-            permission_classes = [permissions.IsAuthenticated]
-        return [permission() for permission in permission_classes]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == 'parent':
-            parent = user.parent_profile
-            return ScoreTransaction.objects.filter(parent=parent)
-        elif user.role == 'child':
-            child = user.child_profile
-            return ScoreTransaction.objects.filter(child=child)
-        return ScoreTransaction.objects.none()
-
-class RewardViewSet(viewsets.ModelViewSet):
-    queryset = Reward.objects.all()
-    serializer_class = RewardSerializer
-
-    def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            permission_classes = [permissions.IsAuthenticated, IsParent]
-        else:
-            permission_classes = [permissions.IsAuthenticated]
-        return [permission() for permission in permission_classes]
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.role == 'parent':
-            parent = user.parent_profile
-            return Reward.objects.filter(parent=parent)
-        elif user.role == 'child':
-            # Return all rewards of parents of the child
-            child = user.child_profile
-            parents = child.parents.all()
-            return Reward.objects.filter(parent__in=parents)
-        return Reward.objects.none()
-
-    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
-    def redeem(self, request, pk=None):
-        reward = self.get_object()
-        user = request.user
-        if user.role != 'child':
-            return Response({'detail': 'Only children can redeem rewards.'}, status=status.HTTP_403_FORBIDDEN)
-
-        child = user.child_profile
-        if child.score_balance < reward.cost:
-            return Response({'detail': 'Not enough points to redeem this reward.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Deduct points via ScoreTransaction
-        ScoreTransaction.objects.create(
-            child=child,
-            parent=None,
-            points=-reward.cost,
-            transaction_type='redeem',
-            description=f'Redeemed reward: {reward.name}'
-        )
-
-        return Response({'detail': f'Reward {reward.name} redeemed successfully!'}, status=status.HTTP_200_OK)
-
-
-
-from rest_framework.views import APIView
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
+# ---------------------------
+# Auth/Users
+# ---------------------------
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]
@@ -135,62 +51,6 @@ class RegisterView(APIView):
 
         return Response({'detail': 'User registered successfully'}, status=status.HTTP_201_CREATED)
 
-from rest_framework.permissions import IsAuthenticated
-from rest_framework import generics
-from .models import Child, ScoreTransaction, Reward
-from .serializers import ScoreTransactionSerializer, RewardSerializer
-from rest_framework.response import Response
-from rest_framework import status
-
-class ScoreTransactionCreateView(generics.CreateAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ScoreTransactionSerializer
-
-    def perform_create(self, serializer):
-        # Only parents can add/subtract scores
-        if self.request.user.role != 'parent':
-            return Response({'detail': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
-        serializer.save()
-
-class RewardListView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = RewardSerializer
-
-    def get_queryset(self):
-        # Return rewards for this child or all if parent
-        if self.request.user.role == 'parent':
-            return Reward.objects.all()
-        else:
-            child = Child.objects.get(user=self.request.user)
-            return Reward.objects.filter(children=child)
-
-class RedeemRewardView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        user = request.user
-        reward_id = request.data.get('reward_id')
-        try:
-            reward = Reward.objects.get(id=reward_id)
-            if user.role == 'child':
-                child = Child.objects.get(user=user)
-                if child.score_balance < reward.cost:
-                    return Response({'detail': 'Insufficient score'}, status=status.HTTP_400_BAD_REQUEST)
-                child.score_balance -= reward.cost
-                child.save()
-                # Log transaction as negative score for redemption
-                ScoreTransaction.objects.create(child=child, points=-reward.cost, description=f'Redeemed reward: {reward.name}')
-                return Response({'detail': 'Reward redeemed successfully'}, status=status.HTTP_200_OK)
-            else:
-                return Response({'detail': 'Only children can redeem rewards'}, status=status.HTTP_403_FORBIDDEN)
-        except Reward.DoesNotExist:
-            return Response({'detail': 'Reward not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-
-
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
 
 class CurrentUserView(APIView):
     permission_classes = [IsAuthenticated]
@@ -200,56 +60,219 @@ class CurrentUserView(APIView):
         return Response({'username': user.username, 'role': user.role})
 
 
+# ---------------------------
+# Parents
+# ---------------------------
 
-from rest_framework import generics, status
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-from django.utils import timezone
+class ParentViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Parent.objects.all()
+    serializer_class = ParentSerializer
+    permission_classes = [permissions.IsAuthenticated, IsParent]
 
-class ScoreTransactionCreateView(generics.CreateAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = ScoreTransactionSerializer
 
-    def perform_create(self, serializer):
-        if self.request.user.role != 'parent':
-            return Response({'detail': 'Permission denied'}, status=status.HTTP_403_FORBIDDEN)
-        serializer.save()
+# ---------------------------
+# Children
+# ---------------------------
 
-class RewardRequestListView(generics.ListAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = RewardRequestSerializer
+class ChildViewSet(viewsets.ModelViewSet):
+    queryset = Child.objects.all()
+    serializer_class = ChildSerializer
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrParent]
 
     def get_queryset(self):
-        # Parents see all requests; children see only their own
         user = self.request.user
         if user.role == 'parent':
-            return RewardRequest.objects.filter(approved=False)
-        else:
-            child = Child.objects.get(user=user)
-            return RewardRequest.objects.filter(child=child)
-
-class RewardRequestApproveView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request, pk):
-        if request.user.role != 'parent':
-            return Response({'detail': 'Only parents can approve'}, status=status.HTTP_403_FORBIDDEN)
-        try:
-            req = RewardRequest.objects.get(pk=pk, approved=False)
-            req.approve(approver=request.user)
-            return Response({'detail': 'Reward request approved'})
-        except RewardRequest.DoesNotExist:
-            return Response({'detail': 'Request not found or already approved'}, status=status.HTTP_404_NOT_FOUND)
-        except ValueError as e:
-            return Response({'detail': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-class RewardRequestCreateView(generics.CreateAPIView):
-    permission_classes = [IsAuthenticated]
-    serializer_class = RewardRequestSerializer
+            parent = user.parent_profile
+            return parent.children.all()
+        elif user.role == 'child':
+            return Child.objects.filter(user=user)
+        return Child.objects.none()
 
     def perform_create(self, serializer):
-        if self.request.user.role != 'child':
-            raise PermissionDenied('Only children can request rewards')
-        child = Child.objects.get(user=self.request.user)
-        serializer.save(child=child)
+        # Only allow parents to create children and auto-link to themselves
+        if self.request.user.role != 'parent':
+            raise PermissionDenied('Only parents can create children.')
+        child = serializer.save()
+        child.parents.add(self.request.user.parent_profile)
+
+
+# ---------------------------
+# Score Transactions
+# ---------------------------
+
+class ScoreTransactionViewSet(viewsets.ModelViewSet):
+    """
+    Parents:
+      - list: all transactions for their children (including child-initiated redemptions)
+      - create/update/delete: allowed (add/subtract/redeem on behalf if desired)
+    Children:
+      - list: only their own transactions
+      - create/update/delete: not allowed
+    """
+    serializer_class = ScoreTransactionSerializer
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [permissions.IsAuthenticated, IsParent]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [perm() for perm in permission_classes]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'parent':
+            parent = user.parent_profile
+            # Show all transactions for the parent's children (not just those created by this parent),
+            # so redemptions (which have parent=None) are visible.
+            return ScoreTransaction.objects.filter(
+                child__in=parent.children.all()
+            ).order_by('-created_at')
+        elif user.role == 'child':
+            child = user.child_profile
+            return ScoreTransaction.objects.filter(child=child).order_by('-created_at')
+        return ScoreTransaction.objects.none()
+
+    def perform_create(self, serializer):
+        # Only parents reach here due to permissions; attach the acting parent
+        parent = self.request.user.parent_profile
+        serializer.save(parent=parent)
+
+
+# ---------------------------
+# Rewards
+# ---------------------------
+
+class RewardViewSet(viewsets.ModelViewSet):
+    serializer_class = RewardSerializer
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            permission_classes = [permissions.IsAuthenticated, IsParent]
+        else:
+            permission_classes = [permissions.IsAuthenticated]
+        return [perm() for perm in permission_classes]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'parent':
+            parent = user.parent_profile
+            return Reward.objects.filter(parent=parent)
+        elif user.role == 'child':
+            # Rewards offered by any of the child's parents
+            child = user.child_profile
+            parents = child.parents.all()
+            return Reward.objects.filter(parent__in=parents)
+        return Reward.objects.none()
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def redeem(self, request, pk=None):
+        """
+        Child self-redeems a reward:
+          - Creates a ScoreTransaction with transaction_type='redeem'
+          - Parent is left as None (or could attach a parent if you want a specific one)
+        """
+        reward = self.get_object()
+        user = request.user
+
+        if user.role != 'child':
+            return Response({'detail': 'Only children can redeem rewards.'}, status=status.HTTP_403_FORBIDDEN)
+
+        child = user.child_profile
+        if child.score_balance < reward.cost:
+            return Response({'detail': 'Not enough points to redeem this reward.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        ScoreTransaction.objects.create(
+            child=child,
+            parent=None,  # redemption without a specific parent actor
+            points=-reward.cost,
+            transaction_type='redeem',
+            description=f'Redeemed reward: {reward.name}',
+        )
+
+        return Response({'detail': f'Reward {reward.name} redeemed successfully!'}, status=status.HTTP_200_OK)
+
+
+# ---------------------------
+# Reward Requests (Child -> Parent approval)
+# ---------------------------
+
+class RewardRequestViewSet(viewsets.ModelViewSet):
+    """
+    Children:
+      - create: request a reward
+      - list/retrieve: view their own requests
+    Parents:
+      - list: see pending requests for their children (approved=False)
+      - approve: custom action to approve and deduct points
+    """
+    serializer_class = RewardRequestSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'parent':
+            parent = user.parent_profile
+            # Pending requests for this parent's children
+            return RewardRequest.objects.filter(
+                child__in=parent.children.all()
+            ).order_by('-requested_at')
+        elif user.role == 'child':
+            child = user.child_profile
+            return RewardRequest.objects.filter(child=child).order_by('-requested_at')
+        return RewardRequest.objects.none()
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role != 'child':
+            raise PermissionDenied('Only children can create reward requests.')
+        child = user.child_profile
+
+        reward = serializer.validated_data.get('reward')
+        # Ensure the requested reward is from one of the child's parents
+        if reward.parent not in child.parents.all():
+            raise PermissionDenied('You can only request rewards from your own parent(s).')
+
+        serializer.save(child=child, approved=False)
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated, IsParent])
+    def approve(self, request, pk=None):
+        """
+        Parent approves a pending reward request:
+          - Verifies parent-child relation
+          - Deducts points via a 'redeem' ScoreTransaction
+        """
+        try:
+            req = self.get_queryset().get(pk=pk)
+        except RewardRequest.DoesNotExist:
+            return Response({'detail': 'Request not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        if req.approved:
+            return Response({'detail': 'Request already approved.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        parent_user = request.user
+        parent = parent_user.parent_profile
+
+        # Security: ensure this child belongs to this parent
+        if parent not in req.child.parents.all():
+            return Response({'detail': 'Not authorized for this child.'}, status=status.HTTP_403_FORBIDDEN)
+
+        # Check balance and redeem
+        if req.child.score_balance < req.reward.cost:
+            return Response({'detail': 'Child does not have enough points.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create redemption transaction; attach acting parent
+        ScoreTransaction.objects.create(
+            child=req.child,
+            parent=parent,
+            points=-req.reward.cost,
+            transaction_type='redeem',
+            description=f"Approved reward: {req.reward.name}",
+        )
+
+        # Mark request approved
+        req.approved = True
+        req.approved_at = timezone.now()
+        req.approved_by = parent_user
+        req.save(update_fields=['approved', 'approved_at', 'approved_by'])
+
+        return Response({'detail': 'Reward request approved and points deducted.'}, status=status.HTTP_200_OK)
